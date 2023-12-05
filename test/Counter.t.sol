@@ -7,17 +7,35 @@ import {Quoter} from "v3-view/contracts/Quoter.sol";
 import {IQuoter} from "v3-view/contracts/interfaces/IQuoter.sol";
 import {IUniswapV3Factory} from "v3-core/contracts/interfaces/IUniswapV3Factory.sol";
 import {UniswapV2Library} from "v2-periphery/contracts/libraries/UniswapV2Library.sol";
+import {IUniswapV2Pair} from "v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+import {IUniswapV2Factory} from "v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 
 contract RouterTest is Test {
     uint256 mainnetFork;
     Quoter quoter;
     IUniswapV3Factory v3Factory;
     address v2Factory;
+    address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
 
-    struct Quote {
+    uint24[4] currentV3FeeTiers = [uint24(100), uint24(500), uint24(3000), uint24(10000)];
+
+    struct Inputs {
         uint256 amountIn;
         address tokenIn;
         address tokenOut;
+    }
+
+    struct Path {
+        address tokenIn;
+        address tokenOut;
+        uint24 fee;
+        address pool;
+        bool version;
+    }
+
+    struct Quote {
+        Path[] path;
+        uint256 amtIn;
     }
 
     function setUp() public {
@@ -29,7 +47,11 @@ contract RouterTest is Test {
         v2Factory = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
     }
 
-    function getV3Pools(address token0, address token1, uint24[4] memory fees) public view returns (address[] memory pools) {
+    function getV3Pools(address token0, address token1, uint24[4] memory fees)
+        public
+        view
+        returns (address[] memory pools)
+    {
         pools = new address[](fees.length);
 
         for (uint256 i = 0; i < fees.length; i++) {
@@ -37,54 +59,186 @@ contract RouterTest is Test {
         }
     }
 
-    function quoteV3(Quote memory quote) public view returns (uint256[] memory amountsOut) {
-        uint24[4] memory fees = [uint24(100), uint24(500), uint24(3000), uint24(10000)];
+    function quoteV3(Path memory path, uint256 amountIn) public view returns (uint256 amountOut) {
+        IQuoter.QuoteExactInputSingleParams memory params = IQuoter.QuoteExactInputSingleParams({
+            tokenIn: path.tokenIn,
+            tokenOut: path.tokenOut,
+            amountIn: amountIn,
+            fee: path.fee,
+            sqrtPriceLimitX96: 0
+        });
 
-        (address[] memory pools)  = getV3Pools(quote.tokenIn, quote.tokenOut, fees);
+        (amountOut,,) = quoter.quoteExactInputSingle(params);
+    }
 
-        amountsOut = new uint256[](fees.length);
-        
+    function quoteV2(Path memory path, uint256 amountIn) public view returns (uint256 amountOut) {
+        (address token0, address token1) = UniswapV2Library.sortTokens(path.tokenIn, path.tokenOut);
+        (uint256 reserveA, uint256 reserveB,) = IUniswapV2Pair(path.pool).getReserves();
+
+        // we need to reverse the tokens
+        if (token0 != path.tokenIn) {
+            (reserveA, reserveB) = (reserveB, reserveA);
+        }
+
+        amountOut = UniswapV2Library.getAmountOut(amountIn, reserveA, reserveB);
+    }
+
+    // struct Hop {
+    //     uint256 amountIn;
+    //     address pool;
+    //     address tokenIn;
+    //     address tokenOut;
+    //     bool protocol;
+    // }
+
+    // struct Path {
+    //     address tokenIn;
+    //     address tokenOut;
+    //     address pool;
+    //     bool version;
+    // }
+
+    function generateV3Paths(Inputs memory quote) public view returns (Path[] memory paths, uint256 validPaths) {
+        uint24[4] memory fees = currentV3FeeTiers;
+
+        paths = new Path[](fees.length);
+
+        (address[] memory pools) = getV3Pools(quote.tokenIn, quote.tokenOut, fees);
+
         for (uint256 i = 0; i < pools.length; i++) {
             if (pools[i] != address(0)) {
-                IQuoter.QuoteExactInputSingleParams memory params = IQuoter.QuoteExactInputSingleParams({tokenIn: quote.tokenIn,
-                                                                                                tokenOut: quote.tokenOut,
-                                                                                                amountIn: quote.amountIn,
-                                                                                                fee: fees[i], 
-                                                                                                sqrtPriceLimitX96: 0});
-
-                (uint256 amountOut,,) = quoter.quoteExactInputSingle(params);
-                amountsOut[i] = amountOut;
-                console.log(amountOut);
+                Path memory path = Path({
+                    tokenIn: quote.tokenIn,
+                    tokenOut: quote.tokenOut,
+                    pool: pools[i],
+                    fee: fees[i],
+                    version: true
+                });
+                paths[validPaths] = path;
+                validPaths++;
             }
         }
     }
 
-    function quoteV2(Quote memory quote) public view returns (uint256 amountOut) {
+    function generateV2Path(Inputs memory quote) public view returns (Path[] memory path, uint256 validPaths) {
         (address token0, address token1) = UniswapV2Library.sortTokens(quote.tokenIn, quote.tokenOut);
-        (uint256 reserveA, uint256 reserveB) = UniswapV2Library.getReserves(v2Factory, token0, token1);
-        
-        // we need to reverse the tokens
-        if (token0 != quote.tokenIn) {
-            (reserveA, reserveB) = (reserveB, reserveA);
+        address v2Pool = IUniswapV2Factory(v2Factory).getPair(token0, token1);
+
+        path = new Path[](1);
+        if (v2Pool != address(0)) {
+            path[validPaths] = Path({
+                tokenIn: quote.tokenIn,
+                tokenOut: quote.tokenOut,
+                pool: v2Pool,
+                fee: uint24(3000),
+                version: false
+            });
+
+            validPaths++;
         }
-        uint256 amountOut = UniswapV2Library.getAmountOut(quote.amountIn, reserveA, reserveB);
-    
+    }
+
+    function generateQuoteFromPath(Path[] memory path, uint256 amtIn) public pure returns (Quote memory quote) {
+        quote = Quote({path: path, amtIn: amtIn});
+    }
+
+    function addPaths(Path[] memory path1, Path[] memory path2) public pure returns (Path[] memory path) {
+        uint256 length = path1.length + path2.length;
+        path = new Path[](length);
+
+        for (uint256 i = 0; i < path1.length; i++) {
+            path[i] = path1[i];
+        }
+
+        for (uint256 i = 0; i < path2.length; i++) {
+            path[i + path1.length] = path2[i];
+        }
+    }
+
+    function addQuotes(Quote memory quote1, Quote memory quote2) public pure returns (Quote memory quote) {
+        quote.path = addPaths(quote1.path, quote2.path);
+        quote.amtIn = quote1.amtIn;
+    }
+
+    function generate1HopQuotes(Inputs memory inputs)
+        public
+        view
+        returns (Quote[] memory quotes, uint256 validQuotes)
+    {
+        (Path[] memory v2Path, uint256 validV2Paths) = generateV2Path(inputs);
+        (Path[] memory v3Paths, uint256 validV3Paths) = generateV3Paths(inputs);
+
+        uint256 totalPaths = validV2Paths + validV3Paths;
+        quotes = new Quote[](totalPaths);
+
+        if (validV2Paths != 0) {
+            quotes[validQuotes] = generateQuoteFromPath(v2Path, inputs.amountIn);
+            validQuotes++;
+        }
+
+        if (validV3Paths != 0) {
+            for (uint256 i = 0; i < validV3Paths; i++) {
+                Path[] memory pathArray = new Path[](1);
+                pathArray[0] = v3Paths[i];
+
+                quotes[validQuotes] = generateQuoteFromPath(pathArray, inputs.amountIn);
+                validQuotes++;
+            }
+        }
+    }
+
+    function generateMultiHop(Inputs memory quote) public view returns (Quote[] memory quotes, uint256 validQuotes) {
+        // here i could set multiple tokens as the intermediate token and send it
+        Inputs memory quoteFirstLeg = Inputs({amountIn: quote.amountIn, tokenIn: quote.tokenIn, tokenOut: WETH});
+        Inputs memory quoteSecondLeg = Inputs({amountIn: 0, tokenIn: WETH, tokenOut: quote.tokenOut});
+
+        (Quote[] memory quotesLeg1, uint256 validQuotesLeg1) = generate1HopQuotes(quoteFirstLeg);
+        (Quote[] memory quotesLeg2, uint256 validQuotesLeg2) = generate1HopQuotes(quoteSecondLeg);
+
+        validQuotes = validQuotesLeg1 * validQuotesLeg2;
+        quotes = new Quote[](validQuotes);
+        console.log(validQuotesLeg1);
+        console.log(validQuotesLeg2);
+
+        for (uint256 i = 0; i < validQuotesLeg1; i++) {
+            for (uint256 j = 0; j < validQuotesLeg2; j++) {
+                quotes[i + j] = addQuotes(quotesLeg1[i], quotesLeg2[j]);
+            }
+        }
     }
 
     function test_Increment() public {
-        Quote memory quote = Quote({amountIn: 1e18,
-                             tokenIn: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2,
-                             tokenOut: 0x72e4f9f808c49a2a61de9c5896298920dc4eeea9
-                            });
+        Inputs memory quote = Inputs({
+            amountIn: 1e18,
+            tokenIn: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48,
+            tokenOut: 0x72e4f9F808C49A2a61dE9C5896298920Dc4EEEa9
+        });
 
+        (Quote[] memory quotes, uint256 validQuotes) = generate1HopQuotes(quote);
 
-        uint256[] memory v3AmountsOut = quoteV3(quote);
-        for (uint256 i = 0; i < v3AmountsOut.length; i++) {
-            console.log(v3AmountsOut[i]);
+        //address path = quotes[0].path[0].pool;
+        console.log(validQuotes);
+
+        uint256 validQuotesMultihop;
+        Quote[] memory quotesMultihop;
+        if ((quote.tokenIn != WETH) && (quote.tokenOut != WETH)) {
+            (quotesMultihop, validQuotesMultihop) = generateMultiHop(quote);
         }
-        uint256 v2AmountOut = quoteV2(quote);
-       
-        console.log(V2amountOut);
+
+        console.log(validQuotesMultihop);
+
+        //(uint256 reserveA, uint256 reserveB) = IUniswapV2Pair(v2Pool).getReserves();
+        // address path;
+
+        // uint256 bestv3Quote;
+        // uint256 bestv3QuoteIndex;
+        // address v3Pool;
+        // (uint256[] memory v3AmountsOut, bestv3Quote, bestv3QuoteIndex, v3Pool) = quoteV3(quote);
+        // uint256 v2AmountOut = quoteV2(quote);
+
+        // if (bestv3Quote > v2AmountOut) {
+
+        // }
 
         assertEq(true, true);
     }
