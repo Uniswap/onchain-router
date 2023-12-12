@@ -38,10 +38,16 @@ contract RouterTest is Test {
         uint256 amtIn;
     }
 
+    struct Route {
+        Path[] path;
+        uint256 amtIn;
+        uint256 amtOut;
+    }
+
     function setUp() public {
         mainnetFork = vm.createFork(vm.envString("MAINNET_RPC_URL"));
         vm.selectFork(mainnetFork);
-
+        
         quoter = new Quoter(0x1F98431c8aD98523631AE4a59f267346ea31F984);
         v3Factory = IUniswapV3Factory(0x1F98431c8aD98523631AE4a59f267346ea31F984);
         v2Factory = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
@@ -60,19 +66,20 @@ contract RouterTest is Test {
     }
 
     function quoteV3(Path memory path, uint256 amountIn) public view returns (uint256 amountOut) {
-        IQuoter.QuoteExactInputSingleParams memory params = IQuoter.QuoteExactInputSingleParams({
+        IQuoter.QuoteExactInputSingleWithPoolParams memory params = IQuoter.QuoteExactInputSingleWithPoolParams({
             tokenIn: path.tokenIn,
             tokenOut: path.tokenOut,
             amountIn: amountIn,
+            pool: path.pool,
             fee: path.fee,
             sqrtPriceLimitX96: 0
         });
 
-        (amountOut,,) = quoter.quoteExactInputSingle(params);
+        (amountOut,,) = quoter.quoteExactInputSingleWithPool(params);
     }
 
     function quoteV2(Path memory path, uint256 amountIn) public view returns (uint256 amountOut) {
-        (address token0, address token1) = UniswapV2Library.sortTokens(path.tokenIn, path.tokenOut);
+        (address token0,) = UniswapV2Library.sortTokens(path.tokenIn, path.tokenOut);
         (uint256 reserveA, uint256 reserveB,) = IUniswapV2Pair(path.pool).getReserves();
 
         // we need to reverse the tokens
@@ -83,20 +90,21 @@ contract RouterTest is Test {
         amountOut = UniswapV2Library.getAmountOut(amountIn, reserveA, reserveB);
     }
 
-    // struct Hop {
-    //     uint256 amountIn;
-    //     address pool;
-    //     address tokenIn;
-    //     address tokenOut;
-    //     bool protocol;
-    // }
+    function quotePath(Path memory path, uint256 amountIn) public view returns (uint256 amountOut) {
+        amountOut = path.version ? quoteV3(path, amountIn) :quoteV2(path, amountIn);
+    }
+    
+    function amtOutFromQuote(Quote memory quote) public view returns (uint256 amtOut) {
+        uint256 amtIn = quote.amtIn;
+        Path[] memory paths = quote.path;
 
-    // struct Path {
-    //     address tokenIn;
-    //     address tokenOut;
-    //     address pool;
-    //     bool version;
-    // }
+        for (uint256 i = 0; i < paths.length; i++) {
+            if (i != 0) {
+                amtOut = amtIn;
+            }
+            amtOut = quotePath(paths[i], amtIn); 
+        }
+    }
 
     function generateV3Paths(Inputs memory quote) public view returns (Path[] memory paths, uint256 validPaths) {
         uint24[4] memory fees = currentV3FeeTiers;
@@ -187,29 +195,40 @@ contract RouterTest is Test {
         }
     }
 
-    function generateMultiHop(Inputs memory quote) public view returns (Quote[] memory quotes, uint256 validQuotes) {
+    function generateMultiHop(Inputs memory quote) public view returns (Quote memory finalQuote, uint256 amtOut) {
         // here i could set multiple tokens as the intermediate token and send it
         Inputs memory quoteFirstLeg = Inputs({amountIn: quote.amountIn, tokenIn: quote.tokenIn, tokenOut: WETH});
-        Inputs memory quoteSecondLeg = Inputs({amountIn: 0, tokenIn: WETH, tokenOut: quote.tokenOut});
-
         (Quote[] memory quotesLeg1, uint256 validQuotesLeg1) = generate1HopQuotes(quoteFirstLeg);
+        (Quote memory bestQuoteLeg1, uint256 bestAmtOut1) = findBestQuote(quotesLeg1);
+
+        Inputs memory quoteSecondLeg = Inputs({amountIn: bestAmtOut1, tokenIn: WETH, tokenOut: quote.tokenOut});
         (Quote[] memory quotesLeg2, uint256 validQuotesLeg2) = generate1HopQuotes(quoteSecondLeg);
+        (Quote memory bestQuoteLeg2, uint256 bestAmtOut2) = findBestQuote(quotesLeg2);
 
-        validQuotes = validQuotesLeg1 * validQuotesLeg2;
-        quotes = new Quote[](validQuotes);
-        console.log(validQuotesLeg1);
-        console.log(validQuotesLeg2);
+        Path[] memory path = new Path[](2);
+        path[0] = bestQuoteLeg1.path[0];
+        path[1] = bestQuoteLeg2.path[0];
 
-        for (uint256 i = 0; i < validQuotesLeg1; i++) {
-            for (uint256 j = 0; j < validQuotesLeg2; j++) {
-                quotes[i + j] = addQuotes(quotesLeg1[i], quotesLeg2[j]);
+       finalQuote = generateQuoteFromPath(path, quote.amountIn);
+       amtOut = bestAmtOut2;
+    }
+
+    function findBestQuote(Quote[] memory quotes) public view returns (Quote memory bestQuote, uint256 bestAmtOut) {
+        uint256 amtOut;
+  
+        for (uint256 i = 0; i < quotes.length; i++) {
+            amtOut = amtOutFromQuote(quotes[i]);
+
+            if (amtOut > bestAmtOut) {
+                bestQuote = quotes[i];
+                bestAmtOut = amtOut;
             }
         }
     }
 
     function test_Increment() public {
         Inputs memory quote = Inputs({
-            amountIn: 1e18,
+            amountIn: 1000 * 1e6,
             tokenIn: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48,
             tokenOut: 0x72e4f9F808C49A2a61dE9C5896298920Dc4EEEa9
         });
@@ -219,27 +238,29 @@ contract RouterTest is Test {
         //address path = quotes[0].path[0].pool;
         console.log(validQuotes);
 
-        uint256 validQuotesMultihop;
-        Quote[] memory quotesMultihop;
+        
+        Quote memory multihopQuote;
+        uint256 multihopOut;
         if ((quote.tokenIn != WETH) && (quote.tokenOut != WETH)) {
-            (quotesMultihop, validQuotesMultihop) = generateMultiHop(quote);
+            (multihopQuote, multihopOut) = generateMultiHop(quote);
         }
+        (Quote memory singehopQuote, uint256 singlehopOut) = findBestQuote(quotes);
 
-        console.log(validQuotesMultihop);
-
-        //(uint256 reserveA, uint256 reserveB) = IUniswapV2Pair(v2Pool).getReserves();
-        // address path;
-
-        // uint256 bestv3Quote;
-        // uint256 bestv3QuoteIndex;
-        // address v3Pool;
-        // (uint256[] memory v3AmountsOut, bestv3Quote, bestv3QuoteIndex, v3Pool) = quoteV3(quote);
-        // uint256 v2AmountOut = quoteV2(quote);
-
-        // if (bestv3Quote > v2AmountOut) {
-
-        // }
-
+        if (singlehopOut > multihopOut) {
+            console.log("single");
+            console.log(singlehopOut - multihopOut);
+            console.log(singlehopOut);
+            address addr = singehopQuote.path[0].pool;
+            console2.log(addr);
+        } else {
+            console.log("multi");
+            console.log(multihopOut - singlehopOut);
+            console.log(multihopOut);
+            address addr = multihopQuote.path[0].pool;
+            console2.log(addr);
+            addr = multihopQuote.path[1].pool;
+            console2.log(addr);
+        }
         assertEq(true, true);
     }
 }
