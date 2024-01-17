@@ -11,6 +11,7 @@ import {IUniswapV2Pair} from "v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import {IUniswapV2Factory} from "v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import {OnchainQuoter} from "../src/OnchainQuoter.sol";
 import {IOnchainQuoter} from "../src/interfaces/IOnchainQuoter.sol";
+import {IFeeOnTransferDetector} from "../src/interfaces/IFeeOnTransferDetector.sol";
 
 contract RouterTest is Test {
     uint256 mainnetFork;
@@ -25,11 +26,11 @@ contract RouterTest is Test {
     function setUp() public {
         mainnetFork = vm.createFork(vm.envString("MAINNET_RPC_URL"));
         vm.selectFork(mainnetFork);
-        
+
         quoter = new Quoter(0x1F98431c8aD98523631AE4a59f267346ea31F984);
         v3Factory = IUniswapV3Factory(0x1F98431c8aD98523631AE4a59f267346ea31F984);
         v2Factory = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
-        
+
         onchainQuoter = new OnchainQuoter(address(quoter), address(v3Factory), v2Factory);
     }
 
@@ -44,7 +45,7 @@ contract RouterTest is Test {
 
         //address path = quotes[0].path[0].pool;
         console.log(validQuotes);
-        
+
         IOnchainQuoter.Quote memory multihopQuote;
         uint256 multihopOut;
         if ((quote.tokenIn != WETH) && (quote.tokenOut != WETH)) {
@@ -68,5 +69,16 @@ contract RouterTest is Test {
             console2.log(addr);
         }
         assertEq(true, true);
+    }
+
+    function test_FOT() public {
+        address unibot = 0xf819d9Cb1c2A819Fd991781A822dE3ca8607c3C9;
+        address FOTDetector = 0x19C97dc2a25845C7f9d1d519c8C2d4809c58b43f;
+
+        IFeeOnTransferDetector detector = IFeeOnTransferDetector(FOTDetector);
+        IFeeOnTransferDetector.TokenFees memory result = detector.validate(unibot, WETH, 1e20);
+
+        console2.log(result.buyFeeBps);
+        console2.log(result.sellFeeBps);
     }
 }
