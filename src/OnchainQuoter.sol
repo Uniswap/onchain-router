@@ -9,7 +9,7 @@ import {IUniswapV3Factory} from "v3-core/contracts/interfaces/IUniswapV3Factory.
 import {UniswapV2Library} from "v2-periphery/contracts/libraries/UniswapV2Library.sol";
 import {IUniswapV2Pair} from "v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import {IUniswapV2Factory} from "v2-core/contracts/interfaces/IUniswapV2Factory.sol";
-
+import {IFeeOnTransferDetector} from "../src/interfaces/IFeeOnTransferDetector.sol";
 import {IOnchainQuoter} from "./interfaces/IOnchainQuoter.sol";
 
 contract OnchainQuoter {
@@ -188,7 +188,33 @@ contract OnchainQuoter {
         }
     }
 
-    function generateMultiHop(IOnchainQuoter.Inputs memory quote)
+    function findBestQuote(IOnchainQuoter.Quote[] memory quotes)
+        public
+        view
+        returns (IOnchainQuoter.Quote memory bestQuote, uint256 bestAmtOut)
+    {
+        uint256 amtOut;
+
+        for (uint256 i = 0; i < quotes.length; i++) {
+            amtOut = amtOutFromQuote(quotes[i]);
+
+            if (amtOut > bestAmtOut) {
+                bestQuote = quotes[i];
+                bestAmtOut = amtOut;
+            }
+        }
+    }
+
+    function generateAndPriceSingleHop(IOnchainQuoter.Inputs memory quote)
+        public
+        view
+        returns (IOnchainQuoter.Quote memory finalQuote, uint256 amtOut)
+    {
+        (IOnchainQuoter.Quote[] memory quotes, uint256 validQuotes) = generate1HopQuotes(quote);
+        (IOnchainQuoter.Quote memory finalQuote, uint256 amtOut) = findBestQuote(quotes);
+    }
+
+    function generateAndPriceMultiHop(IOnchainQuoter.Inputs memory quote)
         public
         view
         returns (IOnchainQuoter.Quote memory finalQuote, uint256 amtOut)
@@ -212,20 +238,27 @@ contract OnchainQuoter {
         amtOut = bestAmtOut2;
     }
 
-    function findBestQuote(IOnchainQuoter.Quote[] memory quotes)
+    function getBestQuotes(IOnchainQuoter.Inputs memory quote)
         public
         view
-        returns (IOnchainQuoter.Quote memory bestQuote, uint256 bestAmtOut)
+        returns (IOnchainQuoter.Quote memory bestQuote, uint256 bestAmtOut, uint256 hops)
     {
-        uint256 amtOut;
+        (IOnchainQuoter.Quote memory singehopQuote, uint256 singlehopOut) = generateAndPriceSingleHop(quote);
 
-        for (uint256 i = 0; i < quotes.length; i++) {
-            amtOut = amtOutFromQuote(quotes[i]);
+        IOnchainQuoter.Quote memory multihopQuote;
+        uint256 multihopOut;
+        if ((quote.tokenIn != WETH) && (quote.tokenOut != WETH)) {
+            (multihopQuote, multihopOut) = generateAndPriceMultiHop(quote);
+        }
 
-            if (amtOut > bestAmtOut) {
-                bestQuote = quotes[i];
-                bestAmtOut = amtOut;
-            }
+        if (singlehopOut > multihopOut) {
+            bestQuote = singehopQuote;
+            bestAmtOut = singlehopOut;
+            hops = 1;
+        } else {
+            bestQuote = multihopQuote;
+            bestAmtOut = multihopOut;
+            hops = 2;
         }
     }
 }
