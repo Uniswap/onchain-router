@@ -16,8 +16,10 @@ import {PoolAddress} from "v3-view/contracts/libraries/PoolAddress.sol";
 import {QuoterMath} from "v3-view/contracts/libraries/QuoterMath.sol";
 import {PoolTickBitmap} from "v3-view/contracts/libraries/PoolTickBitmap.sol";
 import {IV3Quoter} from "./interfaces/IV3Quoter.sol";
+import {OnchainRouterImmutables} from "./base/OnchainRouterImmutables.sol";
+import {SwapHop} from "./base/OnchainRouterStructs.sol";
 
-contract V3Quoter is IV3Quoter {
+abstract contract V3Quoter is OnchainRouterImmutables {
     using QuoterMath for *;
     using LowGasSafeMath for uint256;
     using LowGasSafeMath for int256;
@@ -25,21 +27,41 @@ contract V3Quoter is IV3Quoter {
     using SafeCast for int256;
     using Path for bytes;
 
-    IUniswapV3Factory public immutable v3Factory;
-
-    constructor(address _v3Factory) {
-        v3Factory = IUniswapV3Factory(_v3Factory);
-    }
-
     function getPool(address tokenA, address tokenB, uint24 fee) private view returns (address pool) {
         pool = PoolAddress.computeAddress(address(v3Factory), PoolAddress.getPoolKey(tokenA, tokenB, fee));
     }
 
-    /// @inheritdoc IV3Quoter
-    function v3QuoteExactInputSingleWithPool(QuoteExactInputSingleWithPoolParams memory params)
-        public
+    function v3QuoteExactIn(SwapHop memory swap) internal view returns (uint256 amountOut) {
+        IV3Quoter.QuoteExactInputSingleWithPoolParams memory params = IV3Quoter.QuoteExactInputSingleWithPoolParams({
+            tokenIn: swap.pool.tokenIn,
+            tokenOut: swap.pool.tokenOut,
+            amountIn: swap.amountSpecified,
+            pool: swap.pool.pool,
+            fee: swap.pool.fee,
+            sqrtPriceLimitX96: 0
+        });
+
+        (amountOut,,) = v3QuoteExactInputSingleWithPool(params);
+    }
+
+    function v3QuoteExactOut(SwapHop memory swap) internal view returns (uint256 amountIn) {
+        IV3Quoter.QuoteExactOutputSingleWithPoolParams memory params = IV3Quoter.QuoteExactOutputSingleWithPoolParams({
+            tokenIn: swap.pool.tokenIn,
+            tokenOut: swap.pool.tokenOut,
+            amount: swap.amountSpecified,
+            pool: swap.pool.pool,
+            fee: swap.pool.fee,
+            sqrtPriceLimitX96: 0
+        });
+
+        (amountIn,,) = v3QuoteExactOutputSingleWithPool(params);
+    }
+
+    // ---------------- PRIVATE HELPERS ----------------
+
+    function v3QuoteExactInputSingleWithPool(IV3Quoter.QuoteExactInputSingleWithPoolParams memory params)
+        private
         view
-        override
         returns (uint256 amountReceived, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed)
     {
         int256 amount0;
@@ -64,16 +86,14 @@ contract V3Quoter is IV3Quoter {
         amountReceived = amount0 > 0 ? uint256(-amount1) : uint256(-amount0);
     }
 
-    /// @inheritdoc IV3Quoter
-    function v3QuoteExactInputSingle(QuoteExactInputSingleParams memory params)
-        public
+    function v3QuoteExactInputSingle(IV3Quoter.QuoteExactInputSingleParams memory params)
+        private
         view
-        override
         returns (uint256 amountReceived, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed)
     {
         address pool = getPool(params.tokenIn, params.tokenOut, params.fee);
 
-        QuoteExactInputSingleWithPoolParams memory poolParams = QuoteExactInputSingleWithPoolParams({
+        IV3Quoter.QuoteExactInputSingleWithPoolParams memory poolParams = IV3Quoter.QuoteExactInputSingleWithPoolParams({
             tokenIn: params.tokenIn,
             tokenOut: params.tokenOut,
             amountIn: params.amountIn,
@@ -85,11 +105,9 @@ contract V3Quoter is IV3Quoter {
         (amountReceived, sqrtPriceX96After, initializedTicksCrossed) = v3QuoteExactInputSingleWithPool(poolParams);
     }
 
-    /// @inheritdoc IV3Quoter
     function v3QuoteExactInput(bytes memory path, uint256 amountIn)
-        public
+        private
         view
-        override
         returns (uint256 amountOut, uint160[] memory sqrtPriceX96AfterList, uint32[] memory initializedTicksCrossedList)
     {
         sqrtPriceX96AfterList = new uint160[](path.numPools());
@@ -101,7 +119,7 @@ contract V3Quoter is IV3Quoter {
 
             // the outputs of prior swaps become the inputs to subsequent ones
             (uint256 _amountOut, uint160 _sqrtPriceX96After, uint32 initializedTicksCrossed) = v3QuoteExactInputSingle(
-                QuoteExactInputSingleParams({
+                IV3Quoter.QuoteExactInputSingleParams({
                     tokenIn: tokenIn,
                     tokenOut: tokenOut,
                     fee: fee,
@@ -124,11 +142,9 @@ contract V3Quoter is IV3Quoter {
         }
     }
 
-    /// @inheritdoc IV3Quoter
-    function v3QuoteExactOutputSingleWithPool(QuoteExactOutputSingleWithPoolParams memory params)
-        public
+    function v3QuoteExactOutputSingleWithPool(IV3Quoter.QuoteExactOutputSingleWithPoolParams memory params)
+        private
         view
-        override
         returns (uint256 amountIn, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed)
     {
         int256 amount0;
@@ -161,16 +177,15 @@ contract V3Quoter is IV3Quoter {
         if (amountOutCached != 0) require(amountReceived == amountOutCached);
     }
 
-    /// @inheritdoc IV3Quoter
-    function v3QuoteExactOutputSingle(QuoteExactOutputSingleParams memory params)
-        public
+    function v3QuoteExactOutputSingle(IV3Quoter.QuoteExactOutputSingleParams memory params)
+        private
         view
-        override
         returns (uint256 amountIn, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed)
     {
         address pool = getPool(params.tokenIn, params.tokenOut, params.fee);
 
-        QuoteExactOutputSingleWithPoolParams memory poolParams = QuoteExactOutputSingleWithPoolParams({
+        IV3Quoter.QuoteExactOutputSingleWithPoolParams memory poolParams = IV3Quoter
+            .QuoteExactOutputSingleWithPoolParams({
             tokenIn: params.tokenIn,
             tokenOut: params.tokenOut,
             amount: params.amount,
@@ -182,11 +197,9 @@ contract V3Quoter is IV3Quoter {
         (amountIn, sqrtPriceX96After, initializedTicksCrossed) = v3QuoteExactOutputSingleWithPool(poolParams);
     }
 
-    /// @inheritdoc IV3Quoter
     function v3QuoteExactOutput(bytes memory path, uint256 amountOut)
-        public
+        private
         view
-        override
         returns (uint256 amountIn, uint160[] memory sqrtPriceX96AfterList, uint32[] memory initializedTicksCrossedList)
     {
         sqrtPriceX96AfterList = new uint160[](path.numPools());
@@ -198,7 +211,7 @@ contract V3Quoter is IV3Quoter {
 
             // the inputs of prior swaps become the outputs of subsequent ones
             (uint256 _amountIn, uint160 _sqrtPriceX96After, uint32 _initializedTicksCrossed) = v3QuoteExactOutputSingle(
-                QuoteExactOutputSingleParams({
+                IV3Quoter.QuoteExactOutputSingleParams({
                     tokenIn: tokenIn,
                     tokenOut: tokenOut,
                     amount: amountOut,
