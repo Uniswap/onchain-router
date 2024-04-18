@@ -2,7 +2,6 @@
 pragma solidity ^0.7.6;
 pragma abicoder v2;
 
-import {Test, console, console2} from "forge-std/Test.sol";
 import {IUniswapV3Factory} from "v3-core/contracts/interfaces/IUniswapV3Factory.sol";
 import {IUniswapV2Pair} from "v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import {IUniswapV2Factory} from "v2-core/contracts/interfaces/IUniswapV2Factory.sol";
