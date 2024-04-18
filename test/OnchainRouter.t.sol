@@ -6,14 +6,12 @@ import {Test, console, console2} from "forge-std/Test.sol";
 import {IUniswapV3Factory} from "v3-core/contracts/interfaces/IUniswapV3Factory.sol";
 import {IUniswapV2Pair} from "v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import {IUniswapV2Factory} from "v2-core/contracts/interfaces/IUniswapV2Factory.sol";
-import {Quoter} from "v3-view/contracts/Quoter.sol";
 import {OnchainRouter} from "../src/OnchainRouter.sol";
-import {QuoteParams, Path, Quote, Route} from "../src/base/OnchainRouterStructs.sol";
+import {ExactInputRouteRequestParams, Quote} from "../src/base/OnchainRouterStructs.sol";
 import {IFeeOnTransferDetector} from "../src/interfaces/IFeeOnTransferDetector.sol";
 
 contract RouterTest is Test {
     uint256 mainnetFork;
-    Quoter quoter;
     OnchainRouter onchainRouter;
     IUniswapV3Factory v3Factory;
     address v2Factory;
@@ -25,15 +23,14 @@ contract RouterTest is Test {
         mainnetFork = vm.createFork(vm.envString("MAINNET_RPC_URL"));
         vm.selectFork(mainnetFork);
 
-        quoter = new Quoter(0x1F98431c8aD98523631AE4a59f267346ea31F984);
         v3Factory = IUniswapV3Factory(0x1F98431c8aD98523631AE4a59f267346ea31F984);
         v2Factory = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
 
-        onchainRouter = new OnchainRouter(address(quoter), address(v3Factory), v2Factory);
+        onchainRouter = new OnchainRouter(address(v3Factory), v2Factory);
     }
 
     function test_Increment() public {
-        QuoteParams memory quote = QuoteParams({
+        ExactInputRouteRequestParams memory quote = ExactInputRouteRequestParams({
             amountIn: 1000 * 1e6,
             tokenIn: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48,
             tokenOut: 0x72e4f9F808C49A2a61dE9C5896298920Dc4EEEa9

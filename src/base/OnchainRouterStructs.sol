@@ -2,13 +2,19 @@
 pragma solidity ^0.7.6;
 pragma abicoder v2;
 
-struct QuoteParams {
-    uint256 amountIn;
+struct ExactInputRouteRequestParams {
     address tokenIn;
     address tokenOut;
+    uint256 amountIn;
 }
 
-struct Path {
+struct ExactOutputRouteRequestParams {
+    address tokenIn;
+    address tokenOut;
+    uint256 amountOut;
+}
+
+struct Pool {
     address tokenIn;
     address tokenOut;
     uint24 fee;
@@ -16,13 +22,13 @@ struct Path {
     bool version;
 }
 
-struct Quote {
-    Path[] path;
-    uint256 amountIn;
+struct SwapHop {
+    Pool pool;
+    uint256 amount;
+    bool exactIn;
 }
 
-struct Route {
-    Path[] path;
+struct Quote {
+    Pool[] path;
     uint256 amountIn;
-    uint256 amountOut;
 }
