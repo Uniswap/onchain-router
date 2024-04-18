@@ -156,7 +156,7 @@ abstract contract V3Quoter is OnchainRouterImmutables {
 
         uint256 amountOutCached = 0;
         // if no price limit has been specified, cache the output amount for comparison in the swap callback
-        if (params.sqrtPriceLimitX96 != 0) amountOutCached = params.amount;
+        if (params.sqrtPriceLimitX96 == 0) amountOutCached = params.amount;
 
         QuoterMath.QuoteParams memory quoteParams = QuoterMath.QuoteParams({
             zeroForOne: zeroForOne,
@@ -171,7 +171,7 @@ abstract contract V3Quoter is OnchainRouterImmutables {
             QuoterMath.quote(pool, -(params.amount.toInt256()), quoteParams);
 
         amountIn = amount0 > 0 ? uint256(amount0) : uint256(amount1);
-        amountReceived = amount0 > 0 ? uint256(-amount1) : uint256(amount0);
+        amountReceived = amount0 > 0 ? uint256(-amount1) : uint256(-amount0);
 
         // did we get the full amount?
         if (amountOutCached != 0) require(amountReceived == amountOutCached);
