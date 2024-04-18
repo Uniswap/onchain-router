@@ -1,34 +1,42 @@
-name: test
+name: Tests
 
-on: workflow_dispatch
-
-env:
-  FOUNDRY_PROFILE: ci
+on:
+  push:
+    branches:
+      - main
+  pull_request:
 
 jobs:
-  check:
-    strategy:
-      fail-fast: true
-
-    name: Foundry project
+  forge-tests:
+    name: Forge Tests
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          cache-dependency-path: './test/js-scripts'
+          cache: 'yarn'
+
+      - run: yarn
+        working-directory: ./test/js-scripts
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: nightly
 
-      - name: Run Forge build
-        run: |
-          forge --version
-          forge build --sizes
-        id: build
+      - name: Build
+        run: forge build
+        env:
+          FOUNDRY_PROFILE: ci
 
-      - name: Run Forge tests
-        run: |
-          forge test -vvv
-        id: test
+      - name: Run tests
+        run: forge test -vvv
+        env:
+          FOUNDRY_PROFILE: ci
+
