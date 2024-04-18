@@ -49,8 +49,7 @@ abstract contract PathGenerator is OnchainRouterImmutables {
             address pool = v3Factory.getPool(token0, token1, feeTier);
 
             if (pool != address(0)) {
-                Pool memory path =
-                    Pool({tokenIn: tokenIn, tokenOut: tokenOut, pool: pool, fee: feeTier, version: true});
+                Pool memory path = Pool({tokenIn: tokenIn, tokenOut: tokenOut, pool: pool, fee: feeTier, version: true});
                 paths[validPaths] = path;
                 validPaths++;
             }

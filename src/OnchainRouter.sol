@@ -22,7 +22,10 @@ contract OnchainRouter is OnchainRouterImmutables, V3Quoter, V2Quoter, PathGener
 
     address public immutable WETH;
 
-    constructor(address _v2Factory, address _v3Factory, address _weth) OnchainRouterImmutables(_v2Factory, _v3Factory) PathGenerator(_v3Factory) {
+    constructor(address _v2Factory, address _v3Factory, address _weth)
+        OnchainRouterImmutables(_v2Factory, _v3Factory)
+        PathGenerator(_v3Factory)
+    {
         WETH = _weth;
     }
 
