@@ -6,13 +6,13 @@ import {Test, console, console2} from "forge-std/Test.sol";
 import {Quoter} from "v3-view/contracts/Quoter.sol";
 import {IQuoter} from "v3-view/contracts/interfaces/IQuoter.sol";
 import {IUniswapV3Factory} from "v3-core/contracts/interfaces/IUniswapV3Factory.sol";
-import {UniswapV2Library} from "v2-periphery/contracts/libraries/UniswapV2Library.sol";
 import {IUniswapV2Pair} from "v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import {IUniswapV2Factory} from "v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import {IFeeOnTransferDetector} from "../src/interfaces/IFeeOnTransferDetector.sol";
-import {IOnchainQuoter} from "./interfaces/IOnchainQuoter.sol";
+import {UniswapV2Library} from "./libraries/UniswapV2Library.sol";
+import {QuoteParams, Path, Quote, Route} from "./base/OnchainRouterStructs.sol";
 
-contract OnchainQuoter {
+contract OnchainRouter {
     Quoter quoter;
     IUniswapV3Factory v3Factory;
     address v2Factory;
@@ -26,7 +26,7 @@ contract OnchainQuoter {
         v2Factory = _v2Factory;
     }
 
-    function quoteV3(IOnchainQuoter.Path memory path, uint256 amountIn) public view returns (uint256 amountOut) {
+    function quoteV3(Path memory path, uint256 amountIn) public view returns (uint256 amountOut) {
         IQuoter.QuoteExactInputSingleWithPoolParams memory params = IQuoter.QuoteExactInputSingleWithPoolParams({
             tokenIn: path.tokenIn,
             tokenOut: path.tokenOut,
@@ -39,7 +39,7 @@ contract OnchainQuoter {
         (amountOut,,) = quoter.quoteExactInputSingleWithPool(params);
     }
 
-    function quoteV2(IOnchainQuoter.Path memory path, uint256 amountIn) public view returns (uint256 amountOut) {
+    function quoteV2(Path memory path, uint256 amountIn) public view returns (uint256 amountOut) {
         (address token0,) = UniswapV2Library.sortTokens(path.tokenIn, path.tokenOut);
         (uint256 reserveA, uint256 reserveB,) = IUniswapV2Pair(path.pool).getReserves();
 
@@ -51,7 +51,7 @@ contract OnchainQuoter {
         amountOut = UniswapV2Library.getAmountOut(amountIn, reserveA, reserveB);
     }
 
-    function quotePath(IOnchainQuoter.Path memory path, uint256 amountIn) public view returns (uint256 amountOut) {
+    function quotePath(Path memory path, uint256 amountIn) public view returns (uint256 amountOut) {
         amountOut = path.version ? quoteV3(path, amountIn) : quoteV2(path, amountIn);
     }
 
@@ -67,32 +67,32 @@ contract OnchainQuoter {
         }
     }
 
-    function amtOutFromQuote(IOnchainQuoter.Quote memory quote) public view returns (uint256 amtOut) {
-        uint256 amtIn = quote.amtIn;
-        IOnchainQuoter.Path[] memory paths = quote.path;
+    function amountOutFromQuote(Quote memory quote) public view returns (uint256 amountOut) {
+        uint256 amountIn = quote.amountIn;
+        Path[] memory paths = quote.path;
 
         for (uint256 i = 0; i < paths.length; i++) {
             if (i != 0) {
-                amtOut = amtIn;
+                amountOut = amountIn;
             }
-            amtOut = quotePath(paths[i], amtIn);
+            amountOut = quotePath(paths[i], amountIn);
         }
     }
 
-    function generateV3Paths(IOnchainQuoter.Inputs memory quote)
+    function generateV3Paths(QuoteParams memory quote)
         public
         view
-        returns (IOnchainQuoter.Path[] memory paths, uint256 validPaths)
+        returns (Path[] memory paths, uint256 validPaths)
     {
         uint24[4] memory fees = currentV3FeeTiers;
 
-        paths = new IOnchainQuoter.Path[](fees.length);
+        paths = new Path[](fees.length);
 
         (address[] memory pools) = getV3Pools(quote.tokenIn, quote.tokenOut, fees);
 
         for (uint256 i = 0; i < pools.length; i++) {
             if (pools[i] != address(0)) {
-                IOnchainQuoter.Path memory path = IOnchainQuoter.Path({
+                Path memory path = Path({
                     tokenIn: quote.tokenIn,
                     tokenOut: quote.tokenOut,
                     pool: pools[i],
@@ -105,17 +105,17 @@ contract OnchainQuoter {
         }
     }
 
-    function generateV2Path(IOnchainQuoter.Inputs memory quote)
+    function generateV2Path(QuoteParams memory quote)
         public
         view
-        returns (IOnchainQuoter.Path[] memory path, uint256 validPaths)
+        returns (Path[] memory path, uint256 validPaths)
     {
         (address token0, address token1) = UniswapV2Library.sortTokens(quote.tokenIn, quote.tokenOut);
         address v2Pool = IUniswapV2Factory(v2Factory).getPair(token0, token1);
 
-        path = new IOnchainQuoter.Path[](1);
+        path = new Path[](1);
         if (v2Pool != address(0)) {
-            path[validPaths] = IOnchainQuoter.Path({
+            path[validPaths] = Path({
                 tokenIn: quote.tokenIn,
                 tokenOut: quote.tokenOut,
                 pool: v2Pool,
@@ -127,21 +127,21 @@ contract OnchainQuoter {
         }
     }
 
-    function generateQuoteFromPath(IOnchainQuoter.Path[] memory path, uint256 amtIn)
+    function generateQuoteFromPath(Path[] memory path, uint256 amountIn)
         public
         pure
-        returns (IOnchainQuoter.Quote memory quote)
+        returns (Quote memory quote)
     {
-        quote = IOnchainQuoter.Quote({path: path, amtIn: amtIn});
+        quote = Quote({path: path, amountIn: amountIn});
     }
 
-    function addPaths(IOnchainQuoter.Path[] memory path1, IOnchainQuoter.Path[] memory path2)
+    function addPaths(Path[] memory path1, Path[] memory path2)
         public
         pure
-        returns (IOnchainQuoter.Path[] memory path)
+        returns (Path[] memory path)
     {
         uint256 length = path1.length + path2.length;
-        path = new IOnchainQuoter.Path[](length);
+        path = new Path[](length);
 
         for (uint256 i = 0; i < path1.length; i++) {
             path[i] = path1[i];
@@ -152,25 +152,25 @@ contract OnchainQuoter {
         }
     }
 
-    function addQuotes(IOnchainQuoter.Quote memory quote1, IOnchainQuoter.Quote memory quote2)
+    function addQuotes(Quote memory quote1, Quote memory quote2)
         public
         pure
-        returns (IOnchainQuoter.Quote memory quote)
+        returns (Quote memory quote)
     {
         quote.path = addPaths(quote1.path, quote2.path);
-        quote.amtIn = quote1.amtIn;
+        quote.amountIn = quote1.amountIn;
     }
 
-    function generate1HopQuotes(IOnchainQuoter.Inputs memory inputs)
+    function generate1HopQuotes(QuoteParams memory inputs)
         public
         view
-        returns (IOnchainQuoter.Quote[] memory quotes, uint256 validQuotes)
+        returns (Quote[] memory quotes, uint256 validQuotes)
     {
-        (IOnchainQuoter.Path[] memory v2Path, uint256 validV2Paths) = generateV2Path(inputs);
-        (IOnchainQuoter.Path[] memory v3Paths, uint256 validV3Paths) = generateV3Paths(inputs);
+        (Path[] memory v2Path, uint256 validV2Paths) = generateV2Path(inputs);
+        (Path[] memory v3Paths, uint256 validV3Paths) = generateV3Paths(inputs);
 
         uint256 totalPaths = validV2Paths + validV3Paths;
-        quotes = new IOnchainQuoter.Quote[](totalPaths);
+        quotes = new Quote[](totalPaths);
 
         if (validV2Paths != 0) {
             quotes[validQuotes] = generateQuoteFromPath(v2Path, inputs.amountIn);
@@ -179,7 +179,7 @@ contract OnchainQuoter {
 
         if (validV3Paths != 0) {
             for (uint256 i = 0; i < validV3Paths; i++) {
-                IOnchainQuoter.Path[] memory pathArray = new IOnchainQuoter.Path[](1);
+                Path[] memory pathArray = new Path[](1);
                 pathArray[0] = v3Paths[i];
 
                 quotes[validQuotes] = generateQuoteFromPath(pathArray, inputs.amountIn);
@@ -188,64 +188,64 @@ contract OnchainQuoter {
         }
     }
 
-    function findBestQuote(IOnchainQuoter.Quote[] memory quotes)
+    function findBestQuote(Quote[] memory quotes)
         public
         view
-        returns (IOnchainQuoter.Quote memory bestQuote, uint256 bestAmtOut)
+        returns (Quote memory bestQuote, uint256 bestamountOut)
     {
-        uint256 amtOut;
+        uint256 amountOut;
 
         for (uint256 i = 0; i < quotes.length; i++) {
-            amtOut = amtOutFromQuote(quotes[i]);
+            amountOut = amountOutFromQuote(quotes[i]);
 
-            if (amtOut > bestAmtOut) {
+            if (amountOut > bestamountOut) {
                 bestQuote = quotes[i];
-                bestAmtOut = amtOut;
+                bestamountOut = amountOut;
             }
         }
     }
 
-    function generateAndPriceSingleHop(IOnchainQuoter.Inputs memory quote)
+    function generateAndPriceSingleHop(QuoteParams memory quote)
         public
         view
-        returns (IOnchainQuoter.Quote memory finalQuote, uint256 amtOut)
+        returns (Quote memory finalQuote, uint256 amountOut)
     {
-        (IOnchainQuoter.Quote[] memory quotes, uint256 validQuotes) = generate1HopQuotes(quote);
-        (IOnchainQuoter.Quote memory finalQuote, uint256 amtOut) = findBestQuote(quotes);
+        (Quote[] memory quotes,) = generate1HopQuotes(quote);
+        (finalQuote, amountOut) = findBestQuote(quotes);
     }
 
-    function generateAndPriceMultiHop(IOnchainQuoter.Inputs memory quote)
+    function generateAndPriceMultiHop(QuoteParams memory quote)
         public
         view
-        returns (IOnchainQuoter.Quote memory finalQuote, uint256 amtOut)
+        returns (Quote memory finalQuote, uint256 amountOut)
     {
         // here i could set multiple tokens as the intermediate token and send it
-        IOnchainQuoter.Inputs memory quoteFirstLeg =
-            IOnchainQuoter.Inputs({amountIn: quote.amountIn, tokenIn: quote.tokenIn, tokenOut: WETH});
-        (IOnchainQuoter.Quote[] memory quotesLeg1,) = generate1HopQuotes(quoteFirstLeg);
-        (IOnchainQuoter.Quote memory bestQuoteLeg1, uint256 bestAmtOut1) = findBestQuote(quotesLeg1);
+        QuoteParams memory quoteFirstLeg =
+            QuoteParams({amountIn: quote.amountIn, tokenIn: quote.tokenIn, tokenOut: WETH});
+        (Quote[] memory quotesLeg1,) = generate1HopQuotes(quoteFirstLeg);
+        (Quote memory bestQuoteLeg1, uint256 bestamountOut1) = findBestQuote(quotesLeg1);
 
-        IOnchainQuoter.Inputs memory quoteSecondLeg =
-            IOnchainQuoter.Inputs({amountIn: bestAmtOut1, tokenIn: WETH, tokenOut: quote.tokenOut});
-        (IOnchainQuoter.Quote[] memory quotesLeg2,) = generate1HopQuotes(quoteSecondLeg);
-        (IOnchainQuoter.Quote memory bestQuoteLeg2, uint256 bestAmtOut2) = findBestQuote(quotesLeg2);
+        QuoteParams memory quoteSecondLeg =
+            QuoteParams({amountIn: bestamountOut1, tokenIn: WETH, tokenOut: quote.tokenOut});
+        (Quote[] memory quotesLeg2,) = generate1HopQuotes(quoteSecondLeg);
+        (Quote memory bestQuoteLeg2, uint256 bestamountOut2) = findBestQuote(quotesLeg2);
 
-        IOnchainQuoter.Path[] memory path = new IOnchainQuoter.Path[](2);
+        Path[] memory path = new Path[](2);
         path[0] = bestQuoteLeg1.path[0];
         path[1] = bestQuoteLeg2.path[0];
 
         finalQuote = generateQuoteFromPath(path, quote.amountIn);
-        amtOut = bestAmtOut2;
+        amountOut = bestamountOut2;
     }
 
-    function getBestQuotes(IOnchainQuoter.Inputs memory quote)
+    function getBestQuotes(QuoteParams memory quote)
         public
         view
-        returns (IOnchainQuoter.Quote memory bestQuote, uint256 bestAmtOut, uint256 hops)
+        returns (Quote memory bestQuote, uint256 bestamountOut, uint256 hops)
     {
-        (IOnchainQuoter.Quote memory singehopQuote, uint256 singlehopOut) = generateAndPriceSingleHop(quote);
+        (Quote memory singehopQuote, uint256 singlehopOut) = generateAndPriceSingleHop(quote);
 
-        IOnchainQuoter.Quote memory multihopQuote;
+        Quote memory multihopQuote;
         uint256 multihopOut;
         if ((quote.tokenIn != WETH) && (quote.tokenOut != WETH)) {
             (multihopQuote, multihopOut) = generateAndPriceMultiHop(quote);
@@ -253,11 +253,11 @@ contract OnchainQuoter {
 
         if (singlehopOut > multihopOut) {
             bestQuote = singehopQuote;
-            bestAmtOut = singlehopOut;
+            bestamountOut = singlehopOut;
             hops = 1;
         } else {
             bestQuote = multihopQuote;
-            bestAmtOut = multihopOut;
+            bestamountOut = multihopOut;
             hops = 2;
         }
     }
