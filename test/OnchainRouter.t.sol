@@ -28,6 +28,15 @@ contract RouterForkTest is Test {
         onchainRouter = new OnchainRouter(address(v2Factory), address(v3Factory), WETH);
     }
 
+    function test_getsFeeTiers() public {
+        assertTrue(onchainRouter.feeTiers(0) == 100);
+        assertTrue(onchainRouter.feeTiers(1) == 500);
+        assertTrue(onchainRouter.feeTiers(2) == 3000);
+        assertTrue(onchainRouter.feeTiers(3) == 10000);
+        vm.expectRevert();
+        onchainRouter.feeTiers(4);
+    }
+
     function test_routeHarryPotter() public {
         SwapParams memory request = SwapParams({
             amountSpecified: 1000 * 1e6,
