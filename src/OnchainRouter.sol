@@ -79,11 +79,7 @@ contract OnchainRouter {
         }
     }
 
-    function generateV3Paths(QuoteParams memory quote)
-        public
-        view
-        returns (Path[] memory paths, uint256 validPaths)
-    {
+    function generateV3Paths(QuoteParams memory quote) public view returns (Path[] memory paths, uint256 validPaths) {
         uint24[4] memory fees = currentV3FeeTiers;
 
         paths = new Path[](fees.length);
@@ -105,11 +101,7 @@ contract OnchainRouter {
         }
     }
 
-    function generateV2Path(QuoteParams memory quote)
-        public
-        view
-        returns (Path[] memory path, uint256 validPaths)
-    {
+    function generateV2Path(QuoteParams memory quote) public view returns (Path[] memory path, uint256 validPaths) {
         (address token0, address token1) = UniswapV2Library.sortTokens(quote.tokenIn, quote.tokenOut);
         address v2Pool = IUniswapV2Factory(v2Factory).getPair(token0, token1);
 
@@ -127,19 +119,11 @@ contract OnchainRouter {
         }
     }
 
-    function generateQuoteFromPath(Path[] memory path, uint256 amountIn)
-        public
-        pure
-        returns (Quote memory quote)
-    {
+    function generateQuoteFromPath(Path[] memory path, uint256 amountIn) public pure returns (Quote memory quote) {
         quote = Quote({path: path, amountIn: amountIn});
     }
 
-    function addPaths(Path[] memory path1, Path[] memory path2)
-        public
-        pure
-        returns (Path[] memory path)
-    {
+    function addPaths(Path[] memory path1, Path[] memory path2) public pure returns (Path[] memory path) {
         uint256 length = path1.length + path2.length;
         path = new Path[](length);
 
@@ -152,11 +136,7 @@ contract OnchainRouter {
         }
     }
 
-    function addQuotes(Quote memory quote1, Quote memory quote2)
-        public
-        pure
-        returns (Quote memory quote)
-    {
+    function addQuotes(Quote memory quote1, Quote memory quote2) public pure returns (Quote memory quote) {
         quote.path = addPaths(quote1.path, quote2.path);
         quote.amountIn = quote1.amountIn;
     }
@@ -188,11 +168,7 @@ contract OnchainRouter {
         }
     }
 
-    function findBestQuote(Quote[] memory quotes)
-        public
-        view
-        returns (Quote memory bestQuote, uint256 bestamountOut)
-    {
+    function findBestQuote(Quote[] memory quotes) public view returns (Quote memory bestQuote, uint256 bestamountOut) {
         uint256 amountOut;
 
         for (uint256 i = 0; i < quotes.length; i++) {
