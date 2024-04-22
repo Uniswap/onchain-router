@@ -27,9 +27,10 @@ abstract contract PathGenerator is OnchainRouterImmutables {
 
     /// @notice add the new fee tier to the fee tier list if it exists on the factory
     function addNewFeeTier(uint24 feeTier) public {
-        if (v3Factory.feeAmountTickSpacing(feeTier) != 0) {
-            feeTiers.push(feeTier);
+        if (v3Factory.feeAmountTickSpacing(feeTier) == 0) {
+            revert("Invalid fee tier");
         }
+        feeTiers.push(feeTier);
     }
 
     function generatePaths(address tokenIn, address tokenOut) internal view returns (Pool[] memory paths) {

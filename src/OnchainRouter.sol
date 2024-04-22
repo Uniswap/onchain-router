@@ -96,7 +96,7 @@ contract OnchainRouter is OnchainRouterImmutables, V3Quoter, V2Quoter, PathGener
     /// @dev finds and quotes all single pools for a given single hop
     /// @dev and returns the pool with the best quote
     function routeExactInputSingle(SwapParams memory params) internal view returns (Quote memory bestQuote) {
-        Pool[] memory pools = PathGenerator.generatePaths(params.tokenIn, params.tokenOut);
+        Pool[] memory pools = generatePaths(params.tokenIn, params.tokenOut);
 
         for (uint256 i = 0; i < pools.length; i++) {
             Pool memory pool = pools[i];
@@ -112,7 +112,7 @@ contract OnchainRouter is OnchainRouterImmutables, V3Quoter, V2Quoter, PathGener
     /// @dev finds and quotes all single pools for a given single hop
     /// @dev and returns the pool with the best quote
     function routeExactOutputSingle(SwapParams memory params) internal view returns (Quote memory bestQuote) {
-        Pool[] memory pools = PathGenerator.generatePaths(params.tokenIn, params.tokenOut);
+        Pool[] memory pools = generatePaths(params.tokenIn, params.tokenOut);
 
         for (uint256 i = 0; i < pools.length; i++) {
             Pool memory pool = pools[i];
